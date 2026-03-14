@@ -1,0 +1,251 @@
+<?php
+declare(strict_types=1);
+
+namespace ProcessWire;
+
+/*
+     * Module for ProcessWire to add files for a specific CSS framework to the frontend (CSS and JS)
+     * This module is especially designed for testing purposes during development to switch between different frameworks
+     * Created by Jürgen K.
+     * https://github.com/juergenweb
+     * File name: FrameworkLoader.module
+     * Created: 12.03.2026
+     */
+
+class FrameworkLoader extends WireData implements Module, ConfigurableModule
+{
+
+    protected string $modulePath = '';
+
+    /**
+     * Get all metadata for the module
+     * @return array
+     */
+    public static function getModuleInfo(): array
+    {
+        return [
+            'title' => 'FrameworkLoader',
+            'summary' => 'Add a specific CSS framework to your ProcessWire site. This module is especially designed for testing purposes with different frameworks to switch between them in an easy way.',
+            'author' => "Jürgen Kern",
+            'href' => 'https://github.com/juergenweb/FrameworkLoader',
+            'version' => '1.1.0',
+            'singular' => true,
+            'autoload' => true,
+            'requires' => ['PHP>=8.0.0', 'ProcessWire>=3.0']
+        ];
+    }
+
+    /**
+     * @throws WireException
+     */
+    public function __construct()
+    {
+        parent::__construct();
+        $this->modulePath = $this->wire('config')->paths->siteModules . $this;
+    }
+
+    /**
+     * @throws WireException
+     * Init method contains a lot of HOOK methods
+     */
+    public function init(): void
+    {
+        // add CSS and JS links to the frontend template
+        $this->addHookAfter('Page::render', $this, 'addFramework');
+        // sync with FrameworkLoader config after saving FrontendFroms config
+        $this->addHookAfter('Modules::saveConfig', $this, 'saveFFConfig');
+        // sync with FrontendForms config after saving FrameworkLoader config
+        $this->addHookAfter('Modules::saveConfig', $this, 'saveFLConfig');
+    }
+
+    /**
+     * Add the CSS and JS files to the frontend
+     * @param HookEvent $event
+     * @return void
+     */
+    protected function addFramework(HookEvent $event): void
+    {
+        $page = $event->object;
+        // don't add this to the admin pages
+        if ($page->template->name === 'admin') {
+            return;
+        }
+
+        $frameworkURL = $this->input_framework;
+
+        if (is_null($frameworkURL) || $frameworkURL == '') return;
+
+        // get all CSS files for the selected framework
+        $cssFiles = $this->wire('files')->find($frameworkURL . 'css');
+        if ($cssFiles) {
+            $out = '';
+            foreach ($cssFiles as $css) {
+                $out .= '<link rel="stylesheet" type="text/css" href="' . $css . '">' . PHP_EOL;
+            }
+            $event->return = str_replace('</head>', $out . PHP_EOL . '</head>', $event->return);
+        }
+
+        // get all JS files for the selected framework
+        $jsFiles = $this->wire('files')->find($frameworkURL . 'js');
+        if ($jsFiles) {
+            $out = '';
+            foreach ($jsFiles as $js) {
+                $out .= '<script src="' . $js . '" defer></script>' . PHP_EOL;
+            }
+            $event->return = str_replace('</body>', $out . PHP_EOL . '</body>', $event->return);
+        }
+
+    }
+
+    /** Hook to sync and save the framework value to the FrameworkLoader module
+     * @param HookEvent $event
+     * @return void
+     */
+    protected function saveFFConfig(HookEvent $event): void
+    {
+
+        $class = $event->arguments(0);
+
+        // run only on FrontendForms module
+        if ($class !== 'FrontendForms') return;
+
+        if ($this->wire('session')->get('syncfrontendforms')) {
+            $this->wire('session')->remove('syncfrontendforms');
+            return;
+        }
+
+        // run only if "input_useFFConfig" is checked on FrameworkLoader module
+        $flConfig = $this->wire('modules')->getConfig('FrameworkLoader');
+        if (!$flConfig['input_useFFConfig']) return;
+
+        $ffConfig = $this->wire('modules')->getConfig('FrontendForms');
+        $ffFramework = $ffConfig['input_framework'];
+
+        $ffLinking = [
+            'none.json' => 'None',
+            'bootstrap5.json' => 'site/modules/FrameworkLoader/frameworks/Bootstrap__5/',
+            'pico2.json' => 'site/modules/FrameworkLoader/frameworks/Pico__2/',
+            'uikit3.json' => 'site/modules/FrameworkLoader/frameworks/UiKit__3/'
+        ];
+
+        if (!array_key_exists($ffFramework, $ffLinking)){
+            $this->warning($this->_('The selected framework is not available in FrameworkLoader module, so the value could not be synchronized with FrameworkLoader module.'));
+            return;
+        }
+
+        // set session to prevent infinite loop
+        $this->wire('session')->set('syncframeworkloader', '1');
+
+        // save the framework inside this module setting again
+        $this->wire('modules')->saveConfig('FrameworkLoader', 'input_framework', $ffLinking[$ffFramework]);
+        $this->message($this->_('The selected framework has been synchronized with FrameworkLoader.'));
+
+    }
+
+    /**
+     * Hook to sync and save the framework value to the FrontendForms module
+     * @param HookEvent $event
+     * @return void
+     */
+    protected function saveFLConfig(HookEvent $event): void
+    {
+
+        // run only if FrameworkLoader config has been saved
+        if ($event->arguments(0) !== 'FrameworkLoader') return;
+
+        if ($this->wire('session')->get('syncframeworkloader')) {
+            $this->wire('session')->remove('syncframeworkloader');
+            return;
+        }
+
+        // run only if sync is checked
+        if (!$this->wire('modules')->getConfig($this)['input_useFFConfig']) return;
+
+        $flValue = $this->wire('modules')->getConfig($this)['input_framework'];
+
+        $flLinking = [
+            'None' => 'none.json',
+            'site/modules/FrameworkLoader/frameworks/Bootstrap__5/' => 'bootstrap5.json',
+            'site/modules/FrameworkLoader/frameworks/Pico__2/' => 'pico2.json',
+            'site/modules/FrameworkLoader/frameworks/UiKit__3/' => 'uikit3.json'
+        ];
+
+        // run only if the value exists in FrontendForms too
+        if (!array_key_exists($flValue, $flLinking)) {
+            $this->warning($this->_('The selected framework is not available in FrontendForms, so the value could not be synchronized with FrontendForms.'));
+            return;
+
+        }
+
+        // set session to prevent infinite loop
+        $this->wire('session')->set('syncfrontendforms', '1');
+
+        // save the framework inside this module setting again
+        $this->wire('modules')->saveConfig('FrontendForms', 'input_framework', $flLinking[$flValue]);
+        $this->message($this->_('The selected framework has been synchronized with FrontendForms.'));
+
+    }
+
+    /**
+     * Get all folder names inside the frameworks directory
+     * @return array
+     */
+    protected function getAllFrameworkOptions(): array
+    {
+        $dirPath = $this->modulePath . '/frameworks/';
+        $dirs = $this->wire('files')->find($dirPath, ['allowDirs' => true, 'recursive' => false]);
+
+        $out = [];
+        foreach ($dirs as $dir) {
+            $name = basename($dir);
+            $name = str_replace('__', ' ', $name);
+            $out[$name] = strstr($dir, "site");
+        }
+
+        ksort($out);
+        return $out;
+
+    }
+
+    public function getModuleConfigInputfields(InputfieldWrapper $inputfields): void
+    {
+
+        // Select CSS framework
+        $frameworkSelect = $this->wire('modules')->get('InputfieldSelect');
+        $frameworkSelect->attr('name', 'input_framework');
+        $frameworkSelect->label = $this->_('Load framework');
+        $frameworkSelect->description = $this->_('Select which framework to load.');
+        $frameWorkOptions = [];
+        $frameworks = $this->getAllFrameworkOptions();
+
+        // add "no framework" option
+        $noFramework = ['None' => 'None'];
+        $frameworks = $noFramework + $frameworks;
+
+        // create the options for the select
+        foreach ($frameworks as $name => $url) {
+            $label = $name;
+            if ($label == 'None') {
+                $label = $this->_('No framework');
+            }
+            $frameWorkOptions[$url] = $label;
+        }
+        $frameworkSelect->addOptions($frameWorkOptions);
+        $value = ($this->input_framework) ?? 'None';
+
+        $frameworkSelect->attr('value', $value);
+        $frameworkSelect->required = 1;
+        $inputfields->add($frameworkSelect);
+
+        // Use the Frontendforms framework checkbox
+        $useFFConfiguration = $this->wire('modules')->get('InputfieldCheckbox');
+        $useFFConfiguration->label = $this->_('Sync framework configuration with framework configuration of the Frontendforms module');
+        $useFFConfiguration->label2 = $this->_('Always sync with the Frontendforms configuration.');
+        $useFFConfiguration->description = $this->_('Check this box to sync the framework configuration with the framework settings of the Frontendforms module.');
+        $useFFConfiguration->notes = $this->_('The framework settings of this module and Frontendforms will always be synced independently if this module configuration is saved or the one of FrontendForms.');
+        $useFFConfiguration->attr('name', 'input_useFFConfig');
+        $useFFConfiguration->attr('checked', $this->input_useFFConfig ? 'checked' : '');
+        $inputfields->add($useFFConfiguration);
+    }
+
+}
