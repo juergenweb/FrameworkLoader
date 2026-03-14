@@ -11,7 +11,7 @@ The following frameworks are supported by the module at the moment:
 * Uikit 3
 * Pico 1
 * Pico 2
-* Burma 1
+* Bulma 1
 
 ## How does it work?
 
