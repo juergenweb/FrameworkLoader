@@ -19,6 +19,6 @@ Select the preferred framework inside the select inputfield and all necessary st
 
 ### Sync with FrontendForms
 
-This modules offers a checkbox to sync the framework settings with the FrontendForms framework configuration settings. This means, that if the framework will be changend inside this module configuration (for example Uikit 3 will be selected), then the same framework will be saved inside the module configuration of FrontendForms too. This also works inside the opposite way.
+This modules offers a checkbox to sync the framework settings with the FrontendForms framework configuration settings. This means, that if the framework will be changend inside this module configuration (for example Uikit 3 will be selected), then the same framework will be saved inside the module configuration of FrontendForms too. This also works the opposite way.
 
 This only happens if the checkbox for the synchronization is checked inside the module configuration.
