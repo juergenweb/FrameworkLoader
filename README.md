@@ -3,7 +3,7 @@ Add a specific CSS framework to your ProcessWire site. This module is especially
 
 ## Supported frameworks
 
-The following framworks are supported by the module at the moment:
+The following frameworks are supported by the module at the moment:
 
 * Bootstrap 4
 * Bootstrap 5
