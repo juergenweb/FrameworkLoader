@@ -76,17 +76,18 @@ class FrameworkLoader extends WireData implements Module, ConfigurableModule
         if (is_null($frameworkURL) || $frameworkURL == '') return;
 
         // get all CSS files for the selected framework
-        $cssFiles = $this->wire('files')->find($frameworkURL . 'css');
+        $path = ltrim($frameworkURL, '/');
+        $cssFiles = $this->wire('files')->find($path . 'css');
         if ($cssFiles) {
             $out = '';
             foreach ($cssFiles as $css) {
-                $out .= '<link rel="stylesheet" type="text/css" href="' . $css . '">' . PHP_EOL;
+                $out .= '<link rel="stylesheet" type="text/css" href="/' . $css . '">' . PHP_EOL;
             }
             $event->return = str_replace('</head>', $out . PHP_EOL . '</head>', $event->return);
         }
 
         // get all JS files for the selected framework
-        $jsFiles = $this->wire('files')->find($frameworkURL . 'js');
+        $jsFiles = $this->wire('files')->find($path . 'js');
         if ($jsFiles) {
             $out = '';
             foreach ($jsFiles as $js) {
@@ -123,9 +124,11 @@ class FrameworkLoader extends WireData implements Module, ConfigurableModule
 
         $ffLinking = [
             'none.json' => 'None',
-            'bootstrap5.json' => 'site/modules/FrameworkLoader/frameworks/Bootstrap__5/',
-            'pico2.json' => 'site/modules/FrameworkLoader/frameworks/Pico__2/',
-            'uikit3.json' => 'site/modules/FrameworkLoader/frameworks/UiKit__3/'
+            'bootstrap4.json' => '/site/modules/FrameworkLoader/frameworks/Bootstrap__4/',
+            'bootstrap5.json' => '/site/modules/FrameworkLoader/frameworks/Bootstrap__5/',
+            'bulma1.json' => '/site/modules/FrameworkLoader/frameworks/Bulma__1/',
+            'pico2.json' => '/site/modules/FrameworkLoader/frameworks/Pico__2/',
+            'uikit3.json' => '/site/modules/FrameworkLoader/frameworks/UiKit__3/'
         ];
 
         if (!array_key_exists($ffFramework, $ffLinking)){
@@ -165,11 +168,12 @@ class FrameworkLoader extends WireData implements Module, ConfigurableModule
 
         $flLinking = [
             'None' => 'none.json',
-            'site/modules/FrameworkLoader/frameworks/Bootstrap__5/' => 'bootstrap5.json',
-            'site/modules/FrameworkLoader/frameworks/Pico__2/' => 'pico2.json',
-            'site/modules/FrameworkLoader/frameworks/UiKit__3/' => 'uikit3.json'
+            '/site/modules/FrameworkLoader/frameworks/Bootstrap__4/' => 'bootstrap4.json',
+            '/site/modules/FrameworkLoader/frameworks/Bootstrap__5/' => 'bootstrap5.json',
+            '/site/modules/FrameworkLoader/frameworks/Bulma__1/' => 'bulma1.json',
+            '/site/modules/FrameworkLoader/frameworks/Pico__2/' => 'pico2.json',
+            '/site/modules/FrameworkLoader/frameworks/UiKit__3/' => 'uikit3.json'
         ];
-
         // run only if the value exists in FrontendForms too
         if (!array_key_exists($flValue, $flLinking)) {
             $this->warning($this->_('The selected framework is not available in FrontendForms, so the value could not be synchronized with FrontendForms.'));
@@ -199,7 +203,7 @@ class FrameworkLoader extends WireData implements Module, ConfigurableModule
         foreach ($dirs as $dir) {
             $name = basename($dir);
             $name = str_replace('__', ' ', $name);
-            $out[$name] = strstr($dir, "site");
+            $out[$name] = '/'.strstr($dir, "site");
         }
 
         ksort($out);
@@ -237,15 +241,28 @@ class FrameworkLoader extends WireData implements Module, ConfigurableModule
         $frameworkSelect->required = 1;
         $inputfields->add($frameworkSelect);
 
-        // Use the Frontendforms framework checkbox
-        $useFFConfiguration = $this->wire('modules')->get('InputfieldCheckbox');
-        $useFFConfiguration->label = $this->_('Sync framework configuration with framework configuration of the Frontendforms module');
-        $useFFConfiguration->label2 = $this->_('Always sync with the Frontendforms configuration.');
-        $useFFConfiguration->description = $this->_('Check this box to sync the framework configuration with the framework settings of the Frontendforms module.');
-        $useFFConfiguration->notes = $this->_('The framework settings of this module and Frontendforms will always be synced independently if this module configuration is saved or the one of FrontendForms.');
-        $useFFConfiguration->attr('name', 'input_useFFConfig');
-        $useFFConfiguration->attr('checked', $this->input_useFFConfig ? 'checked' : '');
-        $inputfields->add($useFFConfiguration);
+        // check if FrontendForms is installed
+        if($this->wire('modules')->isInstalled('FrontendForms')) {
+
+            $module = $this->wire('modules')->getModule('FrontendForms');
+            $version = $module->getModuleInfo()['version'];
+
+            // check if the necessary version of FrontendForms is installed
+            if (version_compare($version, '2.3.11', '>=')) {
+
+                // Add the  FrontendForms framework sync checkbox
+                $useFFConfiguration = $this->wire('modules')->get('InputfieldCheckbox');
+                $useFFConfiguration->label = $this->_('Sync framework configuration with framework configuration of the Frontendforms module');
+                $useFFConfiguration->label2 = $this->_('Always sync with the Frontendforms configuration.');
+                $useFFConfiguration->description = $this->_('Check this box to sync the framework configuration with the framework settings of the Frontendforms module.');
+                $useFFConfiguration->notes = $this->_('The framework settings of this module and Frontendforms will always be synced independently if this module configuration is saved or the one of FrontendForms.');
+                $useFFConfiguration->attr('name', 'input_useFFConfig');
+                $useFFConfiguration->attr('checked', $this->input_useFFConfig ? 'checked' : '');
+                $inputfields->add($useFFConfiguration);
+            }
+
+        }
+
     }
 
 }
