@@ -1,24 +1,39 @@
 <?php
+
 declare(strict_types=1);
 
 namespace ProcessWire;
 
-/*
-     * Module for ProcessWire to add files for a specific CSS framework to the frontend (CSS and JS)
-     * This module is especially designed for testing purposes during development to switch between different frameworks
-     * Created by Jürgen K.
-     * https://github.com/juergenweb
-     * File name: FrameworkLoader.module
-     * Created: 12.03.2026
-     */
-
+/**
+ * FrameworkLoader
+ *
+ * Adds the CSS and JS files of a selected CSS framework to the frontend markup.
+ *
+ * This module is intended mainly for development and testing purposes: it lets you
+ * switch between different CSS/JS frameworks (Bootstrap, Bulma, Pico, UIkit, ...)
+ * without having to change any template code.
+ *
+ * @author Jürgen Kern
+ * @link https://github.com/juergenweb/FrameworkLoader
+ * @since 1.1.0 Created 12.03.2026
+ *
+ * @property string $input_framework Root-relative URL of the folder containing the active framework's
+ *                                    "css" and "js" subfolders, or the literal string "None".
+ * @property bool $input_useFFConfig Whether the framework selection should stay in sync with the
+ *                                   FrontendForms module configuration.
+ */
 class FrameworkLoader extends WireData implements Module, ConfigurableModule
 {
-
+    /**
+     * Absolute filesystem path of this module's own directory (no trailing slash).
+     *
+     * @var string
+     */
     protected string $modulePath = '';
 
     /**
-     * Get all metadata for the module
+     * Get all metadata for the module.
+     *
      * @return array
      */
     public static function getModuleInfo(): array
@@ -31,96 +46,114 @@ class FrameworkLoader extends WireData implements Module, ConfigurableModule
             'version' => '1.1.0',
             'singular' => true,
             'autoload' => true,
-            'requires' => ['PHP>=8.0.0', 'ProcessWire>=3.0']
+            'requires' => ['PHP>=8.0.0', 'ProcessWire>=3.0'],
         ];
     }
 
     /**
+     * Construct the module and resolve its own installation path.
+     *
      * @throws WireException
      */
     public function __construct()
     {
         parent::__construct();
-        $this->modulePath = $this->wire('config')->paths->siteModules . $this;
+        $this->modulePath = $this->wire('config')->paths->siteModules . $this->className();
     }
 
     /**
+     * Register all hooks used by this module.
+     *
+     * @return void
      * @throws WireException
-     * Init method contains a lot of HOOK methods
      */
     public function init(): void
     {
-        // add CSS and JS links to the frontend template
+        // Add CSS and JS links to the frontend template.
         $this->addHookAfter('Page::render', $this, 'addFramework');
-        // sync with FrameworkLoader config after saving FrontendFroms config
+        // Sync with FrontendForms config after saving the FrontendForms config.
         $this->addHookAfter('Modules::saveConfig', $this, 'saveFFConfig');
-        // sync with FrontendForms config after saving FrameworkLoader config
+        // Sync with FrontendForms config after saving the FrameworkLoader config.
         $this->addHookAfter('Modules::saveConfig', $this, 'saveFLConfig');
     }
 
     /**
-     * Add the CSS and JS files to the frontend
+     * Add the CSS and JS files of the selected framework to the rendered page output.
+     *
      * @param HookEvent $event
      * @return void
      */
     protected function addFramework(HookEvent $event): void
     {
         $page = $event->object;
-        // don't add this to the admin pages
+
+        // Don't add this to the admin pages.
         if ($page->template->name === 'admin') {
             return;
         }
 
-        $frameworkURL = $this->input_framework;
+        $frameworkUrl = $this->input_framework;
 
-        if (is_null($frameworkURL) || $frameworkURL == '') return;
+        // Nothing to do if no framework is selected (or "None" was chosen explicitly).
+        if (empty($frameworkUrl) || $frameworkUrl === 'None') {
+            return;
+        }
 
-        // get all CSS files for the selected framework
-        $path = ltrim($frameworkURL, '/');
-        $cssFiles = $this->wire('files')->find($path . 'css');
+        // The stored value is a root-relative URL (e.g. "/site/modules/.../Bootstrap__5/").
+        // Resolve it to an absolute filesystem path so it can be used with $files->find().
+        $frameworkPath = rtrim($this->wire('config')->paths->root . ltrim($frameworkUrl, '/'), '/') . '/';
+
+        // Get all CSS files for the selected framework.
+        $cssFiles = $this->wire('files')->find($frameworkPath . 'css');
         if ($cssFiles) {
             $out = '';
             foreach ($cssFiles as $css) {
-                $out .= '<link rel="stylesheet" type="text/css" href="/' . $css . '">' . PHP_EOL;
+                $cssUrl = str_replace($this->wire('config')->paths->root, $this->wire('config')->urls->root, $css);
+                $out .= '<link rel="stylesheet" type="text/css" href="' . $cssUrl . '">' . PHP_EOL;
             }
             $event->return = str_replace('</head>', $out . PHP_EOL . '</head>', $event->return);
         }
 
-        // get all JS files for the selected framework
-        $jsFiles = $this->wire('files')->find($path . 'js');
+        // Get all JS files for the selected framework.
+        $jsFiles = $this->wire('files')->find($frameworkPath . 'js');
         if ($jsFiles) {
             $out = '';
             foreach ($jsFiles as $js) {
-                $out .= '<script src="' . $js . '" defer></script>' . PHP_EOL;
+                $jsUrl = str_replace($this->wire('config')->paths->root, $this->wire('config')->urls->root, $js);
+                $out .= '<script src="' . $jsUrl . '" defer></script>' . PHP_EOL;
             }
             $event->return = str_replace('</body>', $out . PHP_EOL . '</body>', $event->return);
         }
-
     }
 
-    /** Hook to sync and save the framework value to the FrameworkLoader module
+    /**
+     * Hook to sync and save the framework value from FrontendForms to the FrameworkLoader module.
+     *
      * @param HookEvent $event
      * @return void
      */
     protected function saveFFConfig(HookEvent $event): void
     {
-
         $class = $event->arguments(0);
 
-        // run only on FrontendForms module
-        if ($class !== 'FrontendForms') return;
+        // Run only after the FrontendForms module was saved.
+        if ($class !== 'FrontendForms') {
+            return;
+        }
 
         if ($this->wire('session')->get('syncfrontendforms')) {
             $this->wire('session')->remove('syncfrontendforms');
             return;
         }
 
-        // run only if "input_useFFConfig" is checked on FrameworkLoader module
+        // Run only if "input_useFFConfig" is checked on the FrameworkLoader module.
         $flConfig = $this->wire('modules')->getConfig('FrameworkLoader');
-        if (!$flConfig['input_useFFConfig']) return;
+        if (empty($flConfig['input_useFFConfig'])) {
+            return;
+        }
 
         $ffConfig = $this->wire('modules')->getConfig('FrontendForms');
-        $ffFramework = $ffConfig['input_framework'];
+        $ffFramework = $ffConfig['input_framework'] ?? null;
 
         $ffLinking = [
             'none.json' => 'None',
@@ -128,43 +161,47 @@ class FrameworkLoader extends WireData implements Module, ConfigurableModule
             'bootstrap5.json' => '/site/modules/FrameworkLoader/frameworks/Bootstrap__5/',
             'bulma1.json' => '/site/modules/FrameworkLoader/frameworks/Bulma__1/',
             'pico2.json' => '/site/modules/FrameworkLoader/frameworks/Pico__2/',
-            'uikit3.json' => '/site/modules/FrameworkLoader/frameworks/UiKit__3/'
+            'uikit3.json' => '/site/modules/FrameworkLoader/frameworks/UiKit__3/',
         ];
 
-        if (!array_key_exists($ffFramework, $ffLinking)){
+        if ($ffFramework === null || !array_key_exists($ffFramework, $ffLinking)) {
             $this->warning($this->_('The selected framework is not available in FrameworkLoader module, so the value could not be synchronized with FrameworkLoader module.'));
             return;
         }
 
-        // set session to prevent infinite loop
+        // Set session flag to prevent an infinite sync loop.
         $this->wire('session')->set('syncframeworkloader', '1');
 
-        // save the framework inside this module setting again
+        // Save the framework inside this module's setting again.
         $this->wire('modules')->saveConfig('FrameworkLoader', 'input_framework', $ffLinking[$ffFramework]);
         $this->message($this->_('The selected framework has been synchronized with FrameworkLoader.'));
-
     }
 
     /**
-     * Hook to sync and save the framework value to the FrontendForms module
+     * Hook to sync and save the framework value from FrameworkLoader to the FrontendForms module.
+     *
      * @param HookEvent $event
      * @return void
      */
     protected function saveFLConfig(HookEvent $event): void
     {
-
-        // run only if FrameworkLoader config has been saved
-        if ($event->arguments(0) !== 'FrameworkLoader') return;
+        // Run only after the FrameworkLoader config has been saved.
+        if ($event->arguments(0) !== 'FrameworkLoader') {
+            return;
+        }
 
         if ($this->wire('session')->get('syncframeworkloader')) {
             $this->wire('session')->remove('syncframeworkloader');
             return;
         }
 
-        // run only if sync is checked
-        if (!$this->wire('modules')->getConfig($this)['input_useFFConfig']) return;
+        // Run only if sync is checked.
+        $flConfig = $this->wire('modules')->getConfig($this);
+        if (empty($flConfig['input_useFFConfig'])) {
+            return;
+        }
 
-        $flValue = $this->wire('modules')->getConfig($this)['input_framework'];
+        $flValue = $flConfig['input_framework'] ?? null;
 
         $flLinking = [
             'None' => 'none.json',
@@ -172,27 +209,27 @@ class FrameworkLoader extends WireData implements Module, ConfigurableModule
             '/site/modules/FrameworkLoader/frameworks/Bootstrap__5/' => 'bootstrap5.json',
             '/site/modules/FrameworkLoader/frameworks/Bulma__1/' => 'bulma1.json',
             '/site/modules/FrameworkLoader/frameworks/Pico__2/' => 'pico2.json',
-            '/site/modules/FrameworkLoader/frameworks/UiKit__3/' => 'uikit3.json'
+            '/site/modules/FrameworkLoader/frameworks/UiKit__3/' => 'uikit3.json',
         ];
-        // run only if the value exists in FrontendForms too
-        if (!array_key_exists($flValue, $flLinking)) {
+
+        // Run only if the value exists in FrontendForms too.
+        if ($flValue === null || !array_key_exists($flValue, $flLinking)) {
             $this->warning($this->_('The selected framework is not available in FrontendForms, so the value could not be synchronized with FrontendForms.'));
             return;
-
         }
 
-        // set session to prevent infinite loop
+        // Set session flag to prevent an infinite sync loop.
         $this->wire('session')->set('syncfrontendforms', '1');
 
-        // save the framework inside this module setting again
+        // Save the framework inside the FrontendForms module setting again.
         $this->wire('modules')->saveConfig('FrontendForms', 'input_framework', $flLinking[$flValue]);
         $this->message($this->_('The selected framework has been synchronized with FrontendForms.'));
-
     }
 
     /**
-     * Get all folder names inside the frameworks directory
-     * @return array
+     * Get all folder names inside the "frameworks" directory as select options.
+     *
+     * @return array Array of root-relative URL => human-readable framework name.
      */
     protected function getAllFrameworkOptions(): array
     {
@@ -203,18 +240,23 @@ class FrameworkLoader extends WireData implements Module, ConfigurableModule
         foreach ($dirs as $dir) {
             $name = basename($dir);
             $name = str_replace('__', ' ', $name);
-            $out[$name] = '/'.strstr($dir, "site");
+            $out[$name] = str_replace($this->wire('config')->paths->root, '/', $dir);
         }
 
         ksort($out);
-        return $out;
 
+        return $out;
     }
 
+    /**
+     * Build the module configuration inputfields.
+     *
+     * @param InputfieldWrapper $inputfields
+     * @return void
+     */
     public function getModuleConfigInputfields(InputfieldWrapper $inputfields): void
     {
-
-        // Select CSS framework
+        // Select CSS framework.
         $frameworkSelect = $this->wire('modules')->get('InputfieldSelect');
         $frameworkSelect->attr('name', 'input_framework');
         $frameworkSelect->label = $this->_('Load framework');
@@ -222,35 +264,33 @@ class FrameworkLoader extends WireData implements Module, ConfigurableModule
         $frameWorkOptions = [];
         $frameworks = $this->getAllFrameworkOptions();
 
-        // add "no framework" option
+        // Add the "no framework" option.
         $noFramework = ['None' => 'None'];
         $frameworks = $noFramework + $frameworks;
 
-        // create the options for the select
+        // Create the options for the select.
         foreach ($frameworks as $name => $url) {
             $label = $name;
-            if ($label == 'None') {
+            if ($label === 'None') {
                 $label = $this->_('No framework');
             }
             $frameWorkOptions[$url] = $label;
         }
         $frameworkSelect->addOptions($frameWorkOptions);
-        $value = ($this->input_framework) ?? 'None';
+        $value = $this->input_framework ?? 'None';
 
         $frameworkSelect->attr('value', $value);
         $frameworkSelect->required = 1;
         $inputfields->add($frameworkSelect);
 
-        // check if FrontendForms is installed
-        if($this->wire('modules')->isInstalled('FrontendForms')) {
-
+        // Check if FrontendForms is installed.
+        if ($this->wire('modules')->isInstalled('FrontendForms')) {
             $module = $this->wire('modules')->getModule('FrontendForms');
             $version = $module->getModuleInfo()['version'];
 
-            // check if the necessary version of FrontendForms is installed
+            // Check if the necessary version of FrontendForms is installed.
             if (version_compare($version, '2.3.11', '>=')) {
-
-                // Add the  FrontendForms framework sync checkbox
+                // Add the FrontendForms framework sync checkbox.
                 $useFFConfiguration = $this->wire('modules')->get('InputfieldCheckbox');
                 $useFFConfiguration->label = $this->_('Sync framework configuration with framework configuration of the Frontendforms module');
                 $useFFConfiguration->label2 = $this->_('Always sync with the Frontendforms configuration.');
@@ -260,9 +300,6 @@ class FrameworkLoader extends WireData implements Module, ConfigurableModule
                 $useFFConfiguration->attr('checked', $this->input_useFFConfig ? 'checked' : '');
                 $inputfields->add($useFFConfiguration);
             }
-
         }
-
     }
-
 }
